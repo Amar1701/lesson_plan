@@ -1,4 +1,4 @@
-# AI Lesson Planner 2.0 with Human-like Teaching, YouTube, PDF Export
+# AI Lesson Planner 2.0 – Human-Style Teaching with Assessment Generator + YouTube Support
 
 import streamlit as st
 import requests
@@ -34,7 +34,7 @@ class LessonPDF(FPDF):
         self.multi_cell(0, 8, body)
         self.ln()
 
-def generate_pdf_buffer(text, youtube_links):
+def generate_pdf_buffer(text):
     text = clean_text(text)
     pdf = LessonPDF()
     pdf.add_page()
@@ -42,12 +42,18 @@ def generate_pdf_buffer(text, youtube_links):
     for i in range(1, len(sections), 2):
         pdf.chapter_title(sections[i].strip())
         pdf.chapter_body(sections[i+1].strip())
+    pdf_output = pdf.output(dest='S').encode('latin1')
+    return BytesIO(pdf_output)
 
-    if youtube_links:
-        pdf.chapter_title("YouTube Video Recommendations")
-        for title, link in youtube_links:
-            pdf.chapter_body(f"{title}\n{link}")
-
+def generate_assessment_pdf(content):
+    text = clean_text(content)
+    pdf = LessonPDF()
+    pdf.add_page()
+    pdf.chapter_title("Assessment Questions")
+    sections = re.split(r"\*\*(.*?)\*\*", text)
+    for i in range(1, len(sections), 2):
+        pdf.chapter_title(sections[i].strip())
+        pdf.chapter_body(sections[i+1].strip())
     pdf_output = pdf.output(dest='S').encode('latin1')
     return BytesIO(pdf_output)
 
@@ -56,19 +62,41 @@ def get_youtube_videos(topic):
     url = "https://www.googleapis.com/youtube/v3/search"
     params = {
         "part": "snippet",
-        "q": topic + " for students",
+        "q": topic + " Indian students",
         "key": YOUTUBE_API_KEY,
         "maxResults": 3,
         "type": "video",
-        "safeSearch": "strict"
+        "safeSearch": "strict",
+        "regionCode": "IN"
     }
     res = requests.get(url, params=params)
     items = res.json().get("items", [])
     return [(v["snippet"]["title"], "https://www.youtube.com/watch?v=" + v["id"]["videoId"]) for v in items]
 
-# -------------------- PROMPT ------------------------
-def build_prompt(topic, grade, board, language, length):
-    return f"""
+# -------------------- PROMPTS ------------------------
+def build_lesson_prompt(topic, grade, board, language, length):
+    if language.lower() == 'tamil':
+        return f"""
+நீங்கள் அன்பும் அறிவும் நிறைந்த AI ஆசிரியர்.
+
+🎯 பணிகள்:
+"{topic}" என்ற தலைப்பில் {grade} வகுப்பு மாணவர்களுக்காக {board} பாடத்திட்டத்தின் அடிப்படையில் ஒரு விளக்கமான பாடத்திட்டத்தை உருவாக்கவும்.
+இது உண்மையான சூத்திரங்கள் (ஐயேற்பட்டால்), உருவகங்கள் மற்றும் மாணவர்களுக்கு நட்பான உதாரணங்களை உள்ளடக்கியதாக இருக்க வேண்டும்.
+
+📘 பிரிவுகள்:
+1. **கருத்து விளக்கம்**
+2. **ஏன் இது முக்கியம்**
+3. **ஒரு கதையோ உருவகமோ**
+4. **நீங்களே முயற்சி செய்யுங்கள்**
+5. **பொதுவான சந்தேகங்கள்**
+6. **சவால் கேள்வி**
+7. **சுருக்கம்**
+
+மொழி: {language}
+உள்ளடக்க நீளம்: {length}
+"""
+    else:
+        return f"""
 You are a kind and intelligent AI teacher.
 
 🎯 Task:
@@ -88,7 +116,26 @@ Language: {language}
 Content Length: {length}
 """
 
-# -------------------- GROQ API ----------------------
+def build_mcq_prompt(topic, level, count):
+    return f"""
+Create {count} multiple-choice questions on the topic "{topic}".
+- Categorize them under **{level}** difficulty.
+- Each question should have 4 options (A, B, C, D)
+- Highlight the correct option.
+- At the end, include an Answer Key section with explanations.
+Format output like:
+**{level} Questions**
+1. Question ...
+   A...
+   B...
+   C...
+   D...
+
+**Answer Key**
+1. C – Explanation...
+"""
+
+# -------------------- API CALL ----------------------
 def get_lesson_content(prompt):
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     data = {"model": GROQ_MODEL, "messages": [{"role": "user", "content": prompt}], "temperature": 0.7}
@@ -98,37 +145,55 @@ def get_lesson_content(prompt):
 # -------------------- STREAMLIT ---------------------
 def main():
     st.set_page_config(page_title="AI Lesson Planner 2.0", layout="centered")
-    st.title("📚 AI Lesson Planner 2.0 – Human-Style Teaching")
+    st.title("📚 AI Lesson Planner 2.0 – Human-Style Teaching & MCQ Generator")
 
     if 'lesson_content' not in st.session_state:
         st.session_state.lesson_content = ""
+        st.session_state.assessment_content = ""
         st.session_state.youtube_videos = []
 
-    topic = st.text_input("📌 Topic", placeholder="e.g., Friction")
-    grade = st.selectbox("🏫 Class", [f"Class {i}" for i in range(1, 13)])
     board = st.selectbox("📚 Board", ["TN State Board", "NCERT", "ICSE"])
-    language = st.selectbox("🌐 Language", ["English"])
+    grade = st.selectbox("🏫 Class", [f"Class {i}" for i in range(1, 13)])
+    subject = st.text_input("📖 Subject", placeholder="e.g., Science")
+    topic = st.text_input("📌 Topic", placeholder="e.g., Friction")
+    language = st.selectbox("🌐 Language", ["English", "Tamil"])
     length = st.selectbox("📝 Content Length", ["Short Summary", "1 Page", "Long Explanation"])
 
-    if st.button("🚀 Generate Lesson") and topic:
-        with st.spinner("Thinking like a great teacher..."):
-            prompt = build_prompt(topic, grade, board, language, length)
-            lesson_content = get_lesson_content(prompt)
-            youtube_videos = get_youtube_videos(topic)
-            st.session_state.lesson_content = lesson_content
-            st.session_state.youtube_videos = youtube_videos
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("📄 Generate Lesson Content") and topic:
+            with st.spinner("Generating lesson content..."):
+                prompt = build_lesson_prompt(topic, grade, board, language, length)
+                st.session_state.lesson_content = get_lesson_content(prompt)
+                st.session_state.youtube_videos = get_youtube_videos(topic)
+
+    with col2:
+        difficulty = st.radio("Select Difficulty Level", ["Easy", "Medium", "Hard"], horizontal=True, key="difficulty")
+        question_count = st.radio("Number of Questions", [10, 25], horizontal=True, key="qcount")
+
+        if st.button("🧠 Generate Assessment") and topic:
+            with st.spinner("Generating assessment questions..."):
+                prompt = build_mcq_prompt(topic, difficulty, question_count)
+                st.session_state.assessment_content = get_lesson_content(prompt)
 
     if st.session_state.lesson_content:
         st.subheader("📘 Lesson Content")
         st.markdown(st.session_state.lesson_content)
 
-        st.subheader("▶️ YouTube Videos")
-        for title, link in st.session_state.youtube_videos:
-            st.markdown(f"[🎥 {title}]({link})")
+        if st.session_state.youtube_videos:
+            st.subheader("▶️ Relevant YouTube Videos (India)")
+            for title, link in st.session_state.youtube_videos:
+                st.markdown(f"[🎥 {title}]({link})")
 
-        with st.spinner("📄 Generating PDF..."):
-            pdf_buffer = generate_pdf_buffer(st.session_state.lesson_content, st.session_state.youtube_videos)
-            st.download_button("📥 Download as PDF", data=pdf_buffer, file_name="lesson.pdf", mime="application/pdf")
+        pdf_buffer = generate_pdf_buffer(st.session_state.lesson_content)
+        st.download_button("📥 Download Lesson PDF", data=pdf_buffer, file_name="lesson.pdf", mime="application/pdf")
+
+    if st.session_state.assessment_content:
+        st.subheader("📋 Assessment Preview")
+        st.markdown(st.session_state.assessment_content)
+        pdf_buffer = generate_assessment_pdf(st.session_state.assessment_content)
+        st.download_button("📥 Download Assessment PDF", data=pdf_buffer, file_name="assessment.pdf", mime="application/pdf")
 
 if __name__ == "__main__":
     main()
