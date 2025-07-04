@@ -1,4 +1,4 @@
-# AI Lesson Planner 2.0 – Human-Style Teaching with Assessment Generator + YouTube Support
+# AI Lesson Planner 2.0 – Dynamic Subjects + Second Language Support
 
 import streamlit as st
 import requests
@@ -11,6 +11,22 @@ GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
 YOUTUBE_API_KEY = st.secrets["YOUTUBE_API_KEY"]
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama3-70b-8192"
+
+# -------------------- CLASS-SUBJECT MAPPING ------------------------
+class_subjects = {
+    "Class 1": ["English", "Maths", "EVS"],
+    "Class 2": ["English", "Maths", "EVS"],
+    "Class 3": ["English", "Maths", "EVS"],
+    "Class 4": ["English", "Maths", "EVS"],
+    "Class 5": ["English", "Maths", "Science", "Social Science"],
+    "Class 6": ["English", "Maths", "Science", "Social Science", "Tamil", "Hindi"],
+    "Class 7": ["English", "Maths", "Science", "Social Science", "Tamil", "Hindi"],
+    "Class 8": ["English", "Maths", "Science", "Social Science", "Tamil", "Hindi"],
+    "Class 9": ["English", "Maths", "Science", "Social Science", "Tamil", "Hindi"],
+    "Class 10": ["English", "Maths", "Science", "Social Science", "Tamil", "Hindi"],
+    "Class 11": ["Physics", "Chemistry", "Biology", "Mathematics", "Computer Science", "Accountancy", "Economics", "Business Studies", "History", "Geography", "Political Science"],
+    "Class 12": ["Physics", "Chemistry", "Biology", "Mathematics", "Computer Science", "Accountancy", "Economics", "Business Studies", "History", "Geography", "Political Science"]
+}
 
 # -------------------- UTILITIES ------------------------
 def clean_text(text):
@@ -38,7 +54,7 @@ def generate_pdf_buffer(text):
     text = clean_text(text)
     pdf = LessonPDF()
     pdf.add_page()
-    sections = re.split(r"\*\*(.*?)\*\*", text)
+    sections = re.split(r"\*\*(.*?)\\*\\*", text)
     for i in range(1, len(sections), 2):
         pdf.chapter_title(sections[i].strip())
         pdf.chapter_body(sections[i+1].strip())
@@ -50,7 +66,7 @@ def generate_assessment_pdf(content):
     pdf = LessonPDF()
     pdf.add_page()
     pdf.chapter_title("Assessment Questions")
-    sections = re.split(r"\*\*(.*?)\*\*", text)
+    sections = re.split(r"\*\*(.*?)\\*\\*", text)
     for i in range(1, len(sections), 2):
         pdf.chapter_title(sections[i].strip())
         pdf.chapter_body(sections[i+1].strip())
@@ -81,7 +97,7 @@ def build_lesson_prompt(topic, grade, board, language, length):
 
 🎯 பணிகள்:
 "{topic}" என்ற தலைப்பில் {grade} வகுப்பு மாணவர்களுக்காக {board} பாடத்திட்டத்தின் அடிப்படையில் ஒரு விளக்கமான பாடத்திட்டத்தை உருவாக்கவும்.
-இது உண்மையான சூத்திரங்கள் (ஐயேற்பட்டால்), உருவகங்கள் மற்றும் மாணவர்களுக்கு நட்பான உதாரணங்களை உள்ளடக்கியதாக இருக்க வேண்டும்.
+சரியான சூத்திரங்கள், உருவகங்கள் மற்றும் மாணவர்களுக்கு நட்பான உதாரணங்களை அளிக்கவும்.
 
 📘 பிரிவுகள்:
 1. **கருத்து விளக்கம்**
@@ -94,6 +110,26 @@ def build_lesson_prompt(topic, grade, board, language, length):
 
 மொழி: {language}
 உள்ளடக்க நீளம்: {length}
+"""
+    elif language.lower() == 'hindi':
+        return f"""
+आप एक दयालु और बुद्धिमान AI शिक्षक हैं।
+
+🎯 कार्य:
+\"{topic}\" पर {grade} छात्रों के लिए {board} बोर्ड का अनुसरण करते हुए एक अच्छी तरह से समझाया गया पाठ तैयार करें।
+वास्तविक सूत्र, उपमाएँ और छात्रों के अनुकूल उदाहरण शामिल करें।
+
+📘 अनुभाग:
+1. **संकल्पना व्याख्या**
+2. **यह क्यों महत्वपूर्ण है**
+3. **कहानी या उपमा**
+4. **स्वयं प्रयास करें**
+5. **आम शंकाएँ**
+6. **चुनौती प्रश्न**
+7. **सारांश**
+
+भाषा: {language}
+सामग्री की लंबाई: {length}
 """
     else:
         return f"""
@@ -123,16 +159,6 @@ Create {count} multiple-choice questions on the topic "{topic}".
 - Each question should have 4 options (A, B, C, D)
 - Highlight the correct option.
 - At the end, include an Answer Key section with explanations.
-Format output like:
-**{level} Questions**
-1. Question ...
-   A...
-   B...
-   C...
-   D...
-
-**Answer Key**
-1. C – Explanation...
 """
 
 # -------------------- API CALL ----------------------
@@ -144,8 +170,8 @@ def get_lesson_content(prompt):
 
 # -------------------- STREAMLIT ---------------------
 def main():
-    st.set_page_config(page_title="AI Lesson Planner 2.0", layout="centered")
-    st.title("📚 AI Lesson Planner 2.0 – Human-Style Teaching & MCQ Generator")
+    st.set_page_config(page_title="AI Lesson Planner", layout="centered")
+    st.title("📚 AI Lesson Planner")
 
     if 'lesson_content' not in st.session_state:
         st.session_state.lesson_content = ""
@@ -153,10 +179,12 @@ def main():
         st.session_state.youtube_videos = []
 
     board = st.selectbox("📚 Board", ["TN State Board", "NCERT", "ICSE"])
-    grade = st.selectbox("🏫 Class", [f"Class {i}" for i in range(1, 13)])
-    subject = st.text_input("📖 Subject", placeholder="e.g., Science")
-    topic = st.text_input("📌 Topic", placeholder="e.g., Friction")
-    language = st.selectbox("🌐 Language", ["English", "Tamil"])
+    grade = st.selectbox("🏫 Class", list(class_subjects.keys()))
+    subjects = class_subjects.get(grade, [])
+    subject = st.selectbox("📖 Subject", subjects)
+
+    topic = st.text_input("📌 Topic", placeholder="e.g., Laws of Motion")
+    language = st.selectbox("🌐 Language", ["English", "Tamil", "Hindi"])
     length = st.selectbox("📝 Content Length", ["Short Summary", "1 Page", "Long Explanation"])
 
     col1, col2 = st.columns(2)
